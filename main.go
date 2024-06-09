@@ -6,6 +6,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"github.com/dustin/go-humanize"
+	"github.com/gen2brain/beeep"
 	"github.com/joho/godotenv"
 	"github.com/radovskyb/watcher"
 	"github.com/rs/zerolog"
@@ -270,6 +271,11 @@ func main() {
 		logger.Error().Msg("Error loading .env file")
 	}
 
+	err = beeep.Beep(beeep.DefaultFreq, beeep.DefaultDuration)
+	if err != nil {
+		panic(err)
+	}
+
 	resultPath := os.Getenv("RESULT_PATH")
 	resultDispatchedPath := os.Getenv("RESULT_DISPATCHED_PATH")
 	serverUploadUrl := os.Getenv("SERVER_UPLOAD_URL")
@@ -310,15 +316,26 @@ func main() {
 					logger.Info().Msgf("\tTamanho: %s", humanize.Bytes(size))
 					logger.Info().Msgf("\tCaminho: %s", event.Path)
 
+					if event.Op == watcher.Create {
+						err := beeep.Notify("GreatWatcher", "Novo resultado adicionado à pasta: "+event.Name(), "assets/information.png")
+						if err != nil {
+							panic(err)
+						}
+					}
+
 					r, err := getXml(event.Path)
 					if err != nil {
-						logger.Error().Msg("\t\t-> Error loading .env file")
+						err = beeep.Alert("GreatWatcher - "+event.Name(), "Erro ao ler o XML", "assets/warning.png")
+						if err != nil {
+							panic(err)
+						}
+
+						logger.Error().Msg("\t\t-> Erro ao ler o XML")
 					}
 
 					logger.Info().Msgf("\t\t-> ID: %s", r.Prescricao)
 
 					if len(r.Pdf) > 0 {
-						//logger.Info().Msgf("\t\tPDF: %s", r.Pdf)
 						logger.Info().Msg("\t\tCOM PDF!")
 
 						pdfPath := extractFile(r, resultPath)
@@ -328,6 +345,11 @@ func main() {
 						}
 
 						logger.Info().Msgf("\t\t--> Extraido em: %s", r.PdfPath)
+
+						err = beeep.Notify("GreatWatcher - "+event.Name(), "PDF extraído", "assets/information.png")
+						if err != nil {
+							panic(err)
+						}
 
 						extraParams := map[string]string{
 							"id":         r.Prescricao,
@@ -373,7 +395,17 @@ func main() {
 
 						logger.Info().Msgf("\t\t--> Movido de %s para %s", r.PdfPath, resultDispatchedPath+filepath.Base(r.PdfPath))
 						//logger.Println(result)
+
+						err = beeep.Notify("GreatWatcher - "+event.Name(), "Resultado enviado para o servidor!", "assets/information.png")
+						if err != nil {
+							panic(err)
+						}
 					} else {
+						err = beeep.Alert("GreatWatcher - "+event.Name(), "Sem PDF do resultado", "assets/warning.png")
+						if err != nil {
+							panic(err)
+						}
+
 						logger.Info().Msg("\t\tSem PDF!")
 					}
 				}
