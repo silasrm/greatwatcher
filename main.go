@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"github.com/dustin/go-humanize"
@@ -124,21 +125,21 @@ func getXml(path string) (Resultado, error) {
 	return resultado, err
 }
 
-func UploadFile(url string, params map[string]string, files ...File) (*bytes.Buffer, error) {
+func UploadFile(url string, params map[string]string, files ...File) (Response, error) {
 	var (
 		buf = new(bytes.Buffer)
 		w   = multipart.NewWriter(buf)
 	)
 
 	for _, f := range files {
-		part, err := w.CreateFormFile(f.Name, filepath.Base(f.Extension))
+		part, err := w.CreateFormFile(f.Name, filepath.Base(f.Filename))
 		if err != nil {
-			return nil, err
+			return Response{}, err
 		}
 
 		_, err = part.Write(f.File)
 		if err != nil {
-			return nil, err
+			return Response{}, err
 		}
 	}
 
@@ -148,12 +149,12 @@ func UploadFile(url string, params map[string]string, files ...File) (*bytes.Buf
 
 	err := w.Close()
 	if err != nil {
-		return nil, err
+		return Response{}, err
 	}
 
 	req, err := http.NewRequest("POST", url, buf)
 	if err != nil {
-		return nil, err
+		return Response{}, err
 	}
 	req.Header.Add("Content-Type", w.FormDataContentType())
 
@@ -172,20 +173,33 @@ func UploadFile(url string, params map[string]string, files ...File) (*bytes.Buf
 	//return cnt, nil
 
 	if err != nil {
-		return nil, err
+		return Response{}, err
 	}
 
-	body := &bytes.Buffer{}
-	_, err = body.ReadFrom(resp.Body)
+	//body := &bytes.Buffer{}
+	//_, err = body.ReadFrom(resp.Body)
+	//if err != nil {
+	//	log.Fatal(err)
+	//}
+	//resp.Body.Close()
+	////fmt.Println(resp.StatusCode)
+	////fmt.Println(resp.Header)
+	////fmt.Println(body)
+	//
+	//bodyBuffer := []byte(body)
+	//bodyBuffer := new(bytes.Buffer)
+	//bodyBuffer.Write(body)
+	//json.Unmarshal(bodyBuffer, &result)
+
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Fatal(err)
+		return Response{}, err
 	}
-	resp.Body.Close()
-	//fmt.Println(resp.StatusCode)
-	//fmt.Println(resp.Header)
-	//fmt.Println(body)
+	//logger.Println(string(body))
+	result := Response{}
+	json.Unmarshal(body, &result)
 
-	return body, nil
+	return result, nil
 }
 
 func MoveFile(sourcePath, destPath string) error {
@@ -260,9 +274,19 @@ type Resultado struct {
 }
 
 type File struct {
-	Name      string
-	Extension string
-	File      []byte
+	Name     string
+	Filename string
+	File     []byte
+}
+
+//type Response struct {
+//	FormError bool  `json:"form_error"`
+//	Dados     Dados `json:"dados"`
+//}
+
+type Response struct {
+	Success string `json:"success"`
+	Error   string `json:"error"`
 }
 
 func main() {
@@ -278,9 +302,11 @@ func main() {
 
 	resultPath := os.Getenv("RESULT_PATH")
 	resultDispatchedPath := os.Getenv("RESULT_DISPATCHED_PATH")
+	resultErrorPath := os.Getenv("RESULT_ERROR_PATH")
 	serverUploadUrl := os.Getenv("SERVER_UPLOAD_URL")
 	userId := os.Getenv("USER_ID")
 	appToken := os.Getenv("APP_TOKEN")
+	formFileFieldname := os.Getenv("FORM_FILE_FIELDNAME")
 
 	if !folderExists(resultPath) {
 		logger.Error().Msgf("Folder does not exist: %s", resultPath)
@@ -371,34 +397,57 @@ func main() {
 						}
 
 						file := File{
-							Name:      event.Name(),
-							Extension: "pdf",
-							File:      fileContentBytes,
+							//Name:      event.Name(),
+							Name: formFileFieldname,
+							//Extension: "pdf",
+							Filename: r.PdfPath,
+							File:     fileContentBytes,
 						}
 
-						_, err = UploadFile(serverUploadUrl, extraParams, file)
+						result, err := UploadFile(serverUploadUrl+"id/"+r.Prescricao, extraParams, file)
 						if err != nil {
 							logger.Println(err)
 						}
 
-						err = MoveFile(event.Path, resultDispatchedPath+filepath.Base(event.Path))
-						if err != nil {
-							log.Fatal(err)
-						}
+						logger.Println(result)
+						if len(result.Success) > 0 {
+							err = beeep.Notify("GreatWatcher - "+event.Name(), "Resultado enviado para o servidor! "+result.Success, "assets/information.png")
+							if err != nil {
+								panic(err)
+							}
 
-						logger.Info().Msgf("\t\t--> Movido de %s para %s", event.Path, resultDispatchedPath+filepath.Base(event.Path))
+							err = MoveFile(event.Path, resultDispatchedPath+filepath.Base(event.Path))
+							if err != nil {
+								log.Fatal(err)
+							}
 
-						err = MoveFile(r.PdfPath, resultDispatchedPath+filepath.Base(r.PdfPath))
-						if err != nil {
-							log.Fatal(err)
-						}
+							logger.Info().Msgf("\t\t--> Movido de %s para %s", event.Path, resultDispatchedPath+filepath.Base(event.Path))
 
-						logger.Info().Msgf("\t\t--> Movido de %s para %s", r.PdfPath, resultDispatchedPath+filepath.Base(r.PdfPath))
-						//logger.Println(result)
+							err = MoveFile(r.PdfPath, resultDispatchedPath+filepath.Base(r.PdfPath))
+							if err != nil {
+								log.Fatal(err)
+							}
 
-						err = beeep.Notify("GreatWatcher - "+event.Name(), "Resultado enviado para o servidor!", "assets/information.png")
-						if err != nil {
-							panic(err)
+							logger.Info().Msgf("\t\t--> Movido de %s para %s", r.PdfPath, resultDispatchedPath+filepath.Base(r.PdfPath))
+						} else {
+							err = MoveFile(event.Path, resultErrorPath+filepath.Base(event.Path))
+							if err != nil {
+								log.Fatal(err)
+							}
+
+							logger.Info().Msgf("\t\t--> Movido de %s para %s", event.Path, resultErrorPath+filepath.Base(event.Path))
+
+							err = MoveFile(r.PdfPath, resultErrorPath+filepath.Base(r.PdfPath))
+							if err != nil {
+								log.Fatal(err)
+							}
+
+							logger.Info().Msgf("\t\t--> Movido de %s para %s", r.PdfPath, resultErrorPath+filepath.Base(r.PdfPath))
+
+							err = beeep.Alert("GreatWatcher - "+event.Name(), result.Error, "assets/warning.png")
+							if err != nil {
+								panic(err)
+							}
 						}
 					} else {
 						err = beeep.Alert("GreatWatcher - "+event.Name(), "Sem PDF do resultado", "assets/warning.png")
