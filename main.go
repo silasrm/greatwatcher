@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"github.com/dustin/go-humanize"
 	"github.com/gen2brain/beeep"
+	"github.com/getlantern/systray"
+	"github.com/getlantern/systray/example/icon"
 	"github.com/joho/godotenv"
 	"github.com/radovskyb/watcher"
 	"github.com/rs/zerolog"
@@ -279,17 +281,21 @@ type File struct {
 	File     []byte
 }
 
-//type Response struct {
-//	FormError bool  `json:"form_error"`
-//	Dados     Dados `json:"dados"`
-//}
-
 type Response struct {
 	Success string `json:"success"`
 	Error   string `json:"error"`
 }
 
 func main() {
+	onExit := func() {
+		//now := time.Now()
+		//os.WriteFile(fmt.Sprintf(`on_exit_%d.txt`, now.UnixNano()), []byte(now.String()), 0644)
+	}
+
+	systray.Run(onReady, onExit)
+}
+
+func onReady() {
 	err := godotenv.Load()
 	if err != nil {
 		logger.Error().Msg("Error loading .env file")
@@ -300,6 +306,7 @@ func main() {
 		panic(err)
 	}
 
+	appName := os.Getenv("APPNAME")
 	resultPath := os.Getenv("RESULT_PATH")
 	resultDispatchedPath := os.Getenv("RESULT_DISPATCHED_PATH")
 	resultErrorPath := os.Getenv("RESULT_ERROR_PATH")
@@ -307,6 +314,19 @@ func main() {
 	userId := os.Getenv("USER_ID")
 	appToken := os.Getenv("APP_TOKEN")
 	formFileFieldname := os.Getenv("FORM_FILE_FIELDNAME")
+
+	////////
+	systray.SetTemplateIcon(icon.Data, icon.Data)
+	//systray.SetTitle(appName)
+	systray.SetTooltip(appName)
+	mQuitOrig := systray.AddMenuItem("Sair", "Fechar o aplicativo")
+	go func() {
+		<-mQuitOrig.ClickedCh
+		fmt.Println("Requesting quit")
+		systray.Quit()
+		fmt.Println("Finished quitting")
+	}()
+	////////
 
 	if !folderExists(resultPath) {
 		logger.Error().Msgf("Folder does not exist: %s", resultPath)
