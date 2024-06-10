@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
@@ -9,11 +10,11 @@ import (
 	"github.com/dustin/go-humanize"
 	"github.com/gen2brain/beeep"
 	"github.com/getlantern/systray"
-	"github.com/getlantern/systray/example/icon"
 	"github.com/joho/godotenv"
 	"github.com/radovskyb/watcher"
 	"github.com/rs/zerolog"
 	"golang.org/x/net/html/charset"
+	_ "image/jpeg"
 	"io"
 	"log"
 	"mime/multipart"
@@ -316,7 +317,10 @@ func onReady() {
 	formFileFieldname := os.Getenv("FORM_FILE_FIELDNAME")
 
 	////////
-	systray.SetTemplateIcon(icon.Data, icon.Data)
+	var iconData []byte = getIcon()
+
+	systray.SetTemplateIcon(iconData, iconData)
+	systray.SetIcon(iconData)
 	//systray.SetTitle(appName)
 	systray.SetTooltip(appName)
 	mQuitOrig := systray.AddMenuItem("Sair", "Fechar o aplicativo")
@@ -510,4 +514,26 @@ func onReady() {
 	if err := w.Start(time.Millisecond * 100); err != nil {
 		log.Fatalln(err)
 	}
+}
+
+func getIcon() []byte {
+	fileToBeUploaded := "./icon.png"
+	file, err := os.Open(fileToBeUploaded)
+
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+
+	defer file.Close()
+
+	fileInfo, _ := file.Stat()
+	var size int64 = fileInfo.Size()
+	bytes := make([]byte, size)
+
+	// read file into bytes
+	buffer := bufio.NewReader(file)
+	_, err = buffer.Read(bytes) // <--------------- here!
+	logger.Println(buffer)
+	return bytes
 }
