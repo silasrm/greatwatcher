@@ -498,7 +498,130 @@ func onReady() {
 	// Print a list of all of the files and folders currently
 	// being watched and their paths.
 	for path, f := range w.WatchedFiles() {
-		logger.Info().Msgf("%s: %s\n", path, f.Name())
+		if f.IsDir() {
+			logger.Info().Msgf("\tPasta %s: %s", f.Name(), path)
+		} else {
+			size := uint64(f.Size())
+			logger.Info().Msgf("\tArquivo: %s", f.Name())
+			logger.Info().Msgf("\tTamanho: %s", humanize.Bytes(size))
+			logger.Info().Msgf("\tCaminho: %s", path)
+
+			err := beeep.Notify("GreatWatcher", "Arquivo encontrado na pasta: "+f.Name(), "assets/information.png")
+			if err != nil {
+				panic(err)
+			}
+
+			r, err := getXml(path)
+			if err != nil {
+				err = beeep.Alert("GreatWatcher - "+f.Name(), "Erro ao ler o XML", "assets/warning.png")
+				if err != nil {
+					panic(err)
+				}
+
+				logger.Error().Msg("\t\t-> Erro ao ler o XML")
+			}
+
+			logger.Info().Msgf("\t\t-> ID: %s", r.Prescricao)
+
+			if len(r.Pdf) > 0 {
+				logger.Info().Msg("\t\tCOM PDF!")
+
+				pdfPath := extractFile(r, resultPath)
+
+				if len(pdfPath) > 0 {
+					r.PdfPath = pdfPath
+				}
+
+				logger.Info().Msgf("\t\t--> Extraido em: %s", r.PdfPath)
+
+				err = beeep.Notify("GreatWatcher - "+f.Name(), "PDF extraído", "assets/information.png")
+				if err != nil {
+					panic(err)
+				}
+
+				extraParams := map[string]string{
+					"id":         r.Prescricao,
+					"exame":      r.Exame,
+					"data":       r.DataLiberacao,
+					"usuario_id": userId,
+					"token":      appToken,
+				}
+
+				fileContent, err := os.Open(r.PdfPath)
+				// if we os.Open returns an error then handle it
+				if err != nil {
+					logger.Println(err)
+				}
+
+				fileContentBytes, err := io.ReadAll(fileContent)
+				if err != nil {
+					logger.Println(err)
+				}
+
+				file := File{
+					//Name:      event.Name(),
+					Name: formFileFieldname,
+					//Extension: "pdf",
+					Filename: r.PdfPath,
+					File:     fileContentBytes,
+				}
+
+				result, err := UploadFile(serverUploadUrl+"id/"+r.Prescricao, extraParams, file)
+				if err != nil {
+					logger.Println(err)
+				}
+
+				logger.Println(result)
+				if len(result.Success) > 0 {
+					err = beeep.Notify("GreatWatcher - "+f.Name(), "Resultado enviado para o servidor! "+result.Success, "assets/information.png")
+					if err != nil {
+						panic(err)
+					}
+
+					err = MoveFile(path, resultDispatchedPath+filepath.Base(path))
+					if err != nil {
+						log.Fatal(err)
+					}
+
+					logger.Info().Msgf("\t\t--> Movido de %s para %s", path, resultDispatchedPath+filepath.Base(path))
+
+					err = MoveFile(r.PdfPath, resultDispatchedPath+filepath.Base(r.PdfPath))
+					if err != nil {
+						log.Fatal(err)
+					}
+
+					logger.Info().Msgf("\t\t--> Movido de %s para %s", r.PdfPath, resultDispatchedPath+filepath.Base(r.PdfPath))
+				} else {
+					err = MoveFile(path, resultErrorPath+filepath.Base(path))
+					if err != nil {
+						log.Fatal(err)
+					}
+
+					logger.Info().Msgf("\t\t--> Movido de %s para %s", path, resultErrorPath+filepath.Base(path))
+
+					err = MoveFile(r.PdfPath, resultErrorPath+filepath.Base(r.PdfPath))
+					if err != nil {
+						log.Fatal(err)
+					}
+
+					logger.Info().Msgf("\t\t--> Movido de %s para %s", r.PdfPath, resultErrorPath+filepath.Base(r.PdfPath))
+
+					err = beeep.Alert("GreatWatcher - "+f.Name(), result.Error, "assets/warning.png")
+					if err != nil {
+						panic(err)
+					}
+				}
+			} else {
+				err = beeep.Alert("GreatWatcher - "+f.Name(), "Sem PDF do resultado", "assets/warning.png")
+				if err != nil {
+					panic(err)
+				}
+
+				logger.Info().Msg("\t\tSem PDF!")
+			}
+		}
+
+		//logger.Info().Msgf("%s: %s\n", path, f.Name(), f.Size())
 	}
 
 	logger.Println()
