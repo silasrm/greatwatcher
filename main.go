@@ -312,6 +312,7 @@ func onReady() {
 	resultDispatchedPath := os.Getenv("RESULT_DISPATCHED_PATH")
 	resultErrorPath := os.Getenv("RESULT_ERROR_PATH")
 	serverUploadUrl := os.Getenv("SERVER_UPLOAD_URL")
+	serverUploadPacienteUrl := os.Getenv("SERVER_UPLOAD_PACIENTE_URL")
 	userId := os.Getenv("USER_ID")
 	appToken := os.Getenv("APP_TOKEN")
 	formFileFieldname := os.Getenv("FORM_FILE_FIELDNAME")
@@ -428,7 +429,12 @@ func onReady() {
 							File:     fileContentBytes,
 						}
 
-						result, err := UploadFile(serverUploadUrl+"id/"+r.Prescricao, extraParams, file)
+						url := serverUploadUrl
+						if isNumeric(r.Prescricao) {
+							url = serverUploadPacienteUrl
+						}
+
+						result, err := UploadFile(url+"id/"+r.Prescricao+"/codigo/"+r.Exame, extraParams, file)
 						if err != nil {
 							logger.Println(err)
 						}
@@ -566,7 +572,12 @@ func onReady() {
 					File:     fileContentBytes,
 				}
 
-				result, err := UploadFile(serverUploadUrl+"id/"+r.Prescricao, extraParams, file)
+				url := serverUploadUrl
+				if isNumeric(r.Prescricao) {
+					url = serverUploadPacienteUrl
+				}
+
+				result, err := UploadFile(url+"id/"+r.Prescricao+"/codigo/"+r.Exame, extraParams, file)
 				if err != nil {
 					logger.Println(err)
 				}
@@ -659,4 +670,11 @@ func getIcon() []byte {
 	_, err = buffer.Read(bytes) // <--------------- here!
 	logger.Println(buffer)
 	return bytes
+}
+
+func isNumeric(word string) bool {
+	return regexp.MustCompile(`\d`).MatchString(word)
+	// calling regexp.MustCompile() function to create the regular expression.
+	// calling MatchString() function that returns a bool that
+	// indicates whether a pattern is matched by the string.
 }
