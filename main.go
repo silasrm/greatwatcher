@@ -690,14 +690,17 @@ func MoveFile(sourcePath, destPath string) error {
 	//}
 
 	err := os.Rename(sourcePath, destPath)
-	if err != nil && strings.Contains(err.Error(), "invalid cross-device link") {
-		logger.Error().Msgf("couldn't copy to dest from source: %v", err)
-		return moveCrossDevice(sourcePath, destPath)
-	}
-	logger.Error().Msgf("couldn't move file %s to %s: %v", sourcePath, destPath, err)
-	return err
+	if err != nil {
+		if strings.Contains(err.Error(), "invalid cross-device link") {
+			logger.Error().Msgf("couldn't copy to dest from source: %v", err)
+			return moveCrossDevice(sourcePath, destPath)
+		}
 
-	//return nil
+		logger.Error().Msgf("couldn't move file %s to %s: %v", sourcePath, destPath, err)
+		return err
+	}
+
+	return nil
 
 	//inputFile, err := os.Open(sourcePath)
 	//if err != nil {
