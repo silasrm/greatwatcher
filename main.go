@@ -15,6 +15,7 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/radovskyb/watcher"
 	"github.com/rs/zerolog"
+	"gitlab.com/avarf/getenvs"
 	"golang.org/x/net/html/charset"
 	_ "image/jpeg"
 	"io"
@@ -63,6 +64,7 @@ var (
 		Int("pid", os.Getpid()).
 		Str("go_version", buildInfo.GoVersion).
 		Logger()
+	debugeActived = false
 )
 
 type Prescricao struct {
@@ -141,7 +143,9 @@ func onReady() {
 	}
 
 	appName := os.Getenv("APPNAME")
+	debugeActived, _ = getenvs.GetEnvBool("DEBUG", false)
 	resultPath := os.Getenv("RESULT_PATH")
+	resultProcessingPath := os.Getenv("RESULT_PROCESSING_PATH")
 	resultDispatchedPath := os.Getenv("RESULT_DISPATCHED_PATH")
 	resultErrorPath := os.Getenv("RESULT_ERROR_PATH")
 	serverUploadUrl := os.Getenv("SERVER_UPLOAD_URL")
@@ -208,125 +212,135 @@ func onReady() {
 						}
 					}
 
-					r, err := getXml(event.Path)
+					// @todo Mover XML para resultProcessingPath e processar de lá para não manter PDF na pasta
+					finalFilePath := resultProcessingPath + filepath.Base(event.Path)
+					err = MoveFile(event.Path, finalFilePath)
 					if err != nil {
-						err = beeep.Alert("GreatWatcher - "+event.Name(), "Erro ao ler o XML", "assets/warning.png")
+						logger.Error().Msgf("couldn't move file %s to %s: %v", event.Path, finalFilePath, err)
+						panic(err)
+					} else {
+						logger.Info().Msgf("\t\t--> Movido de %s para %s", event.Path, finalFilePath)
+
+						r, err := getXml(finalFilePath)
 						if err != nil {
-							panic(err)
-						}
-
-						logger.Error().Msg("\t\t-> Erro ao ler o XML")
-					}
-
-					logger.Info().Msgf("\t\t-> ID: %s", r.Prescricao)
-
-					if len(r.Pdf) > 0 {
-						logger.Info().Msg("\t\tCOM PDF!")
-
-						pdfPath := extractFile(r, resultPath)
-
-						if len(pdfPath) > 0 {
-							r.PdfPath = pdfPath
-						}
-
-						logger.Info().Msgf("\t\t--> Extraido em: %s", r.PdfPath)
-
-						err = beeep.Notify("GreatWatcher - "+event.Name(), "PDF extraído", "assets/information.png")
-						if err != nil {
-							panic(err)
-						}
-
-						extraParams := map[string]string{
-							"id":         r.Prescricao,
-							"exame":      r.Exame,
-							"data":       r.DataLiberacao,
-							"usuario_id": userId,
-							"token":      appToken,
-						}
-
-						fileContent, err := os.Open(r.PdfPath)
-						// if we os.Open returns an error then handle it
-						if err != nil {
-							logger.Println(err)
-						}
-
-						fileContentBytes, err := io.ReadAll(fileContent)
-						if err != nil {
-							logger.Println(err)
-						}
-
-						file := File{
-							//Name:      event.Name(),
-							Name: formFileFieldname,
-							//Extension: "pdf",
-							Filename: r.PdfPath,
-							File:     fileContentBytes,
-						}
-
-						url := serverUploadUrl
-						if isNumeric(r.Prescricao) {
-							url = serverUploadPacienteUrl
-						}
-
-						urlFinal := url + "id/" + r.Prescricao + "/codigo/" + r.Exame
-						logger.Println(urlFinal)
-
-						result, err := UploadFile(urlFinal, extraParams, file)
-						if err != nil {
-							logger.Println(err)
-						}
-
-						logger.Println(result)
-						if len(result.Success) > 0 {
-							err = beeep.Notify("GreatWatcher - "+event.Name(), "Resultado enviado para o servidor! "+result.Success, "assets/information.png")
+							err = beeep.Alert("GreatWatcher - "+event.Name(), "Erro ao ler o XML", "assets/warning.png")
 							if err != nil {
 								panic(err)
 							}
 
-							err = MoveFile(event.Path, resultDispatchedPath+filepath.Base(event.Path))
-							if err != nil {
-								logger.Error().Msgf("couldn't move file %s to %s: %v", event.Path, resultDispatchedPath+filepath.Base(event.Path), err)
-								//log.Fatal(err)
-							} else {
-								logger.Info().Msgf("\t\t--> Movido de %s para %s", event.Path, resultDispatchedPath+filepath.Base(event.Path))
+							logger.Error().Msg("\t\t-> Erro ao ler o XML")
+						}
+
+						logger.Info().Msgf("\t\t-> ID: %s", r.Prescricao)
+
+						if len(r.Pdf) > 0 {
+							logger.Info().Msg("\t\tCOM PDF!")
+
+							pdfPath := extractFile(r, resultProcessingPath)
+
+							if len(pdfPath) > 0 {
+								r.PdfPath = pdfPath
 							}
 
-							err = MoveFile(r.PdfPath, resultDispatchedPath+filepath.Base(r.PdfPath))
+							logger.Info().Msgf("\t\t--> Extraido em: %s", r.PdfPath)
+
+							err = beeep.Notify("GreatWatcher - "+event.Name(), "PDF extraído", "assets/information.png")
 							if err != nil {
-								logger.Error().Msgf("couldn't move file %s to %s: %v", r.PdfPath, resultDispatchedPath+filepath.Base(r.PdfPath), err)
-								//log.Fatal(err)
+								panic(err)
+							}
+
+							extraParams := map[string]string{
+								"id":         r.Prescricao,
+								"exame":      r.Exame,
+								"data":       r.DataLiberacao,
+								"usuario_id": userId,
+								"token":      appToken,
+							}
+
+							fileContent, err := os.Open(r.PdfPath)
+							// if we os.Open returns an error then handle it
+							if err != nil {
+								logger.Println(err)
+							}
+
+							fileContentBytes, err := io.ReadAll(fileContent)
+							if err != nil {
+								logger.Println(err)
+							}
+
+							file := File{
+								//Name:      event.Name(),
+								Name: formFileFieldname,
+								//Extension: "pdf",
+								Filename: r.PdfPath,
+								File:     fileContentBytes,
+							}
+
+							url := serverUploadUrl
+							if isNumeric(r.Prescricao) {
+								url = serverUploadPacienteUrl
+							}
+
+							urlFinal := url + "id/" + r.Prescricao + "/codigo/" + r.Exame
+							logger.Println(urlFinal)
+
+							result, err := UploadFile(urlFinal, extraParams, file)
+							if err != nil {
+								logger.Println(err)
+							}
+
+							logger.Println(result)
+							if len(result.Success) > 0 {
+								err = beeep.Notify("GreatWatcher - "+event.Name(), "Resultado enviado para o servidor! "+result.Success, "assets/information.png")
+								if err != nil {
+									panic(err)
+								}
+
+								err = MoveFile(finalFilePath, resultDispatchedPath+filepath.Base(event.Path))
+								if err != nil {
+									logger.Error().Msgf("couldn't move file %s to %s: %v", finalFilePath, resultDispatchedPath+filepath.Base(event.Path), err)
+									//log.Fatal(err)
+								} else {
+									logger.Info().Msgf("\t\t--> Movido de %s para %s", finalFilePath, resultDispatchedPath+filepath.Base(event.Path))
+								}
+
+								err = MoveFile(r.PdfPath, resultDispatchedPath+filepath.Base(r.PdfPath))
+								if err != nil {
+									logger.Error().Msgf("couldn't move file %s to %s: %v", r.PdfPath, resultDispatchedPath+filepath.Base(r.PdfPath), err)
+									//log.Fatal(err)
+								} else {
+									logger.Info().Msgf("\t\t--> Movido de %s para %s", r.PdfPath, resultDispatchedPath+filepath.Base(r.PdfPath))
+								}
 							} else {
-								logger.Info().Msgf("\t\t--> Movido de %s para %s", r.PdfPath, resultDispatchedPath+filepath.Base(r.PdfPath))
+								err = MoveFile(finalFilePath, resultErrorPath+filepath.Base(event.Path))
+								if err != nil {
+									logger.Error().Msgf("couldn't move file %s to %s: %v", finalFilePath, resultErrorPath+filepath.Base(event.Path), err)
+									//log.Fatal(err)
+								} else {
+									logger.Info().Msgf("\t\t--> Movido de %s para %s", finalFilePath, resultErrorPath+filepath.Base(event.Path))
+								}
+
+								err = MoveFile(r.PdfPath, resultErrorPath+filepath.Base(r.PdfPath))
+								if err != nil {
+									logger.Error().Msgf("couldn't move file %s to %s: %v", r.PdfPath, resultErrorPath+filepath.Base(r.PdfPath), err)
+									//log.Fatal(err)
+								} else {
+									logger.Info().Msgf("\t\t--> Movido de %s para %s", r.PdfPath, resultErrorPath+filepath.Base(r.PdfPath))
+								}
+
+								err = beeep.Alert("GreatWatcher - "+event.Name(), result.Error, "assets/warning.png")
+								if err != nil {
+									panic(err)
+								}
 							}
 						} else {
-							err = MoveFile(event.Path, resultErrorPath+filepath.Base(event.Path))
-							if err != nil {
-								logger.Error().Msgf("couldn't move file %s to %s: %v", event.Path, resultErrorPath+filepath.Base(event.Path), err)
-								//log.Fatal(err)
-							} else {
-								logger.Info().Msgf("\t\t--> Movido de %s para %s", event.Path, resultErrorPath+filepath.Base(event.Path))
-							}
-
-							err = MoveFile(r.PdfPath, resultErrorPath+filepath.Base(r.PdfPath))
-							if err != nil {
-								logger.Error().Msgf("couldn't move file %s to %s: %v", r.PdfPath, resultErrorPath+filepath.Base(r.PdfPath), err)
-								//log.Fatal(err)
-							} else {
-								logger.Info().Msgf("\t\t--> Movido de %s para %s", r.PdfPath, resultErrorPath+filepath.Base(r.PdfPath))
-							}
-
-							err = beeep.Alert("GreatWatcher - "+event.Name(), result.Error, "assets/warning.png")
+							err = beeep.Alert("GreatWatcher - "+event.Name(), "Sem PDF do resultado", "assets/warning.png")
 							if err != nil {
 								panic(err)
 							}
-						}
-					} else {
-						err = beeep.Alert("GreatWatcher - "+event.Name(), "Sem PDF do resultado", "assets/warning.png")
-						if err != nil {
-							panic(err)
-						}
 
-						logger.Info().Msg("\t\tSem PDF!")
+							logger.Info().Msg("\t\tSem PDF!")
+						}
 					}
 				}
 			case err := <-w.Error:
@@ -527,7 +541,11 @@ func getIcon() []byte {
 	// read file into bytes
 	buffer := bufio.NewReader(file)
 	_, err = buffer.Read(iconBytes) // <--------------- here!
-	logger.Println(buffer)
+
+	if debugeActived {
+		logger.Println(buffer)
+	}
+
 	return iconBytes
 }
 
